@@ -1,0 +1,578 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>まるつー記事作る君</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.1.3/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Hiragino Sans', 'Yu Gothic', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+        .main-container {
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            margin: 2rem auto;
+            max-width: 1200px;
+        }
+        .header-section {
+            background: linear-gradient(45deg, #ff6b6b, #ffa500);
+            color: white;
+            text-align: center;
+            padding: 2rem;
+            border-radius: 15px 15px 0 0;
+        }
+        .step-indicator {
+            display: flex;
+            justify-content: center;
+            margin: 2rem 0;
+        }
+        .step {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: #e9ecef;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 1rem;
+            position: relative;
+        }
+        .step.active {
+            background: #007bff;
+            color: white;
+        }
+        .step.completed {
+            background: #28a745;
+            color: white;
+        }
+        .step::after {
+            content: '';
+            position: absolute;
+            right: -2rem;
+            width: 2rem;
+            height: 2px;
+            background: #e9ecef;
+        }
+        .step:last-child::after {
+            display: none;
+        }
+        .upload-area {
+            border: 3px dashed #007bff;
+            border-radius: 10px;
+            padding: 3rem;
+            text-align: center;
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+        .upload-area:hover {
+            border-color: #0056b3;
+            background: #f8f9fa;
+        }
+        .upload-area.dragover {
+            border-color: #28a745;
+            background: #d4edda;
+        }
+        .btn-primary {
+            background: linear-gradient(45deg, #007bff, #0056b3);
+            border: none;
+            border-radius: 25px;
+            padding: 0.75rem 2rem;
+        }
+        .btn-success {
+            background: linear-gradient(45deg, #28a745, #1e7e34);
+            border: none;
+            border-radius: 25px;
+            padding: 0.75rem 2rem;
+        }
+        .form-control {
+            border-radius: 10px;
+            border: 2px solid #e9ecef;
+            padding: 0.75rem;
+        }
+        .form-control:focus {
+            border-color: #007bff;
+            box-shadow: 0 0 0 0.2rem rgba(0,123,255,.25);
+        }
+        .progress {
+            height: 25px;
+            border-radius: 15px;
+        }
+        .alert {
+            border-radius: 10px;
+            border: none;
+        }
+        .quality-score {
+            text-align: center;
+            padding: 1rem;
+            border-radius: 10px;
+            margin: 1rem 0;
+        }
+        .quality-excellent { background: #d4edda; color: #155724; }
+        .quality-good { background: #d1ecf1; color: #0c5460; }
+        .quality-fair { background: #fff3cd; color: #856404; }
+        .quality-poor { background: #f8d7da; color: #721c24; }
+        .transcription-box {
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 1.5rem;
+            margin: 1rem 0;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        .article-preview {
+            background: white;
+            border: 1px solid #e9ecef;
+            border-radius: 10px;
+            padding: 2rem;
+            margin: 1rem 0;
+            white-space: pre-line;
+            line-height: 1.8;
+        }
+        .loading-spinner {
+            display: none;
+            text-align: center;
+            padding: 2rem;
+        }
+        .social-summary {
+            background: #e3f2fd;
+            border-radius: 10px;
+            padding: 1rem;
+            margin: 1rem 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container-fluid">
+        <div class="main-container">
+            <!-- ヘッダー -->
+            <div class="header-section">
+                <h1><i class="fas fa-microphone"></i> まるつー記事作る君</h1>
+                <p class="mb-0">音声データから記事を自動生成するよ〜！</p>
+            </div>
+
+            <div class="container p-4">
+                <!-- ステップインジケーター -->
+                <div class="step-indicator">
+                    <div class="step active" id="step1">1</div>
+                    <div class="step" id="step2">2</div>
+                    <div class="step" id="step3">3</div>
+                    <div class="step" id="step4">4</div>
+                </div>
+
+                <!-- Step 1: 音声アップロード -->
+                <div id="upload-section" class="section">
+                    <h3><i class="fas fa-upload"></i> Step 1. 音声ファイルをアップロード</h3>
+                    <p class="text-muted">取材した音声データをアップロードしてください（mp3, wav, m4a対応）</p>
+                    
+                    <div class="upload-area" id="uploadArea">
+                        <i class="fas fa-cloud-upload-alt fa-3x text-primary mb-3"></i>
+                        <h5>ここに音声ファイルをドラッグ＆ドロップ</h5>
+                        <p class="text-muted">または</p>
+                        <input type="file" id="audioFile" accept=".mp3,.wav,.m4a,.mp4" style="display: none;">
+                        <button class="btn btn-primary" onclick="document.getElementById('audioFile').click()">
+                            <i class="fas fa-folder-open"></i> ファイルを選択
+                        </button>
+                        <p class="text-muted mt-2">最大100MB</p>
+                    </div>
+
+                    <div id="uploadProgress" class="mt-3" style="display: none;">
+                        <div class="progress">
+                            <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar"></div>
+                        </div>
+                        <p class="text-center mt-2">音声をアップロード中...</p>
+                    </div>
+                </div>
+
+                <!-- Step 2: 文字起こし結果 -->
+                <div id="transcription-section" class="section" style="display: none;">
+                    <h3><i class="fas fa-file-alt"></i> Step 2. 文字起こし結果</h3>
+                    <p class="text-muted">音声の文字起こしが完了しました。内容を確認してください。</p>
+                    
+                    <div class="transcription-box" id="transcriptionResult">
+                        <!-- 文字起こし結果がここに表示 -->
+                    </div>
+                    
+                    <button class="btn btn-success" onclick="showShopInfoForm()">
+                        <i class="fas fa-arrow-right"></i> 次へ進む
+                    </button>
+                </div>
+
+                <!-- Step 3: 店舗情報入力 -->
+                <div id="shop-info-section" class="section" style="display: none;">
+                    <h3><i class="fas fa-store"></i> Step 3. 店舗・取材先情報</h3>
+                    <p class="text-muted">記事に必要な店舗情報を入力してください。</p>
+                    
+                    <form id="shopInfoForm" class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">店舗名 *</label>
+                            <input type="text" class="form-control" id="shopName" required>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">業種・カテゴリ *</label>
+                            <select class="form-control" id="shopCategory" required>
+                                <option value="">選択してください</option>
+                                <option value="グルメ">グルメ・飲食店</option>
+                                <option value="ショップ">ショップ・小売店</option>
+                                <option value="サービス">サービス業</option>
+                                <option value="美容・健康">美容・健康</option>
+                                <option value="習い事">習い事・教室</option>
+                                <option value="イベント">イベント・催し</option>
+                                <option value="その他">その他</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">地域 *</label>
+                            <select class="form-control" id="shopLocation" required>
+                                <option value="">選択してください</option>
+                                <option value="坂出市">坂出市</option>
+                                <option value="丸亀市">丸亀市</option>
+                                <option value="宇多津町">宇多津町</option>
+                                <option value="善通寺市">善通寺市</option>
+                                <option value="琴平町">琴平町</option>
+                                <option value="多度津町">多度津町</option>
+                                <option value="まんのう町">まんのう町</option>
+                                <option value="その他中讃地域">その他中讃地域</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">住所</label>
+                            <input type="text" class="form-control" id="shopAddress" placeholder="香川県丸亀市...">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">電話番号</label>
+                            <input type="tel" class="form-control" id="shopPhone" placeholder="087-XXX-XXXX">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">営業時間</label>
+                            <input type="text" class="form-control" id="shopHours" placeholder="10:00〜20:00">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">定休日</label>
+                            <input type="text" class="form-control" id="shopClosed" placeholder="火曜日">
+                        </div>
+                        <div class="col-12 mb-3">
+                            <label class="form-label">特記事項・アピールポイント</label>
+                            <textarea class="form-control" id="shopNotes" rows="3" placeholder="駐車場完備、テイクアウト可能など..."></textarea>
+                        </div>
+                    </form>
+                    
+                    <button class="btn btn-success" onclick="generateArticle()">
+                        <i class="fas fa-magic"></i> 記事を生成する
+                    </button>
+                </div>
+
+                <!-- Step 4: 記事生成・プレビュー -->
+                <div id="article-section" class="section" style="display: none;">
+                    <h3><i class="fas fa-newspaper"></i> Step 4. 記事生成完了</h3>
+                    
+                    <!-- 品質スコア -->
+                    <div id="qualityScore" class="quality-score">
+                        <!-- 品質スコアがここに表示 -->
+                    </div>
+
+                    <!-- 記事タイトル -->
+                    <div class="mb-3">
+                        <label class="form-label"><strong>記事タイトル</strong></label>
+                        <input type="text" class="form-control" id="articleTitle" readonly>
+                    </div>
+
+                    <!-- 記事本文プレビュー -->
+                    <div class="mb-3">
+                        <label class="form-label"><strong>記事本文</strong></label>
+                        <div id="articlePreview" class="article-preview">
+                            <!-- 記事内容がここに表示 -->
+                        </div>
+                    </div>
+
+                    <!-- SNS投稿用要約 -->
+                    <div class="mb-3">
+                        <label class="form-label"><strong>SNS投稿用要約</strong></label>
+                        <div id="socialSummary" class="social-summary">
+                            <!-- SNS要約がここに表示 -->
+                        </div>
+                    </div>
+
+                    <!-- エクスポートボタン -->
+                    <div class="text-center">
+                        <button class="btn btn-primary me-2" onclick="exportArticle('html')">
+                            <i class="fas fa-download"></i> HTML形式でダウンロード
+                        </button>
+                        <button class="btn btn-secondary me-2" onclick="exportArticle('txt')">
+                            <i class="fas fa-file-text"></i> テキスト形式でダウンロード
+                        </button>
+                        <button class="btn btn-info" onclick="copyToClipboard()">
+                            <i class="fas fa-copy"></i> クリップボードにコピー
+                        </button>
+                    </div>
+                </div>
+
+                <!-- ローディング表示 -->
+                <div id="loadingSpinner" class="loading-spinner">
+                    <i class="fas fa-spinner fa-spin fa-3x text-primary"></i>
+                    <p class="mt-3">処理中です。しばらくお待ちください...</p>
+                </div>
+
+                <!-- エラー表示 -->
+                <div id="errorAlert" class="alert alert-danger" style="display: none;">
+                    <i class="fas fa-exclamation-triangle"></i>
+                    <span id="errorMessage"></span>
+                </div>
+
+                <!-- 成功表示 -->
+                <div id="successAlert" class="alert alert-success" style="display: none;">
+                    <i class="fas fa-check-circle"></i>
+                    <span id="successMessage"></span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.1.3/js/bootstrap.bundle.min.js"></script>
+    <script>
+        let currentSessionId = null;
+        let currentStep = 1;
+
+        // ステップ管理
+        function updateStep(step) {
+            // 前のステップを完了状態に
+            if (currentStep > 0) {
+                document.getElementById(`step${currentStep}`).classList.remove('active');
+                document.getElementById(`step${currentStep}`).classList.add('completed');
+            }
+            
+            // 新しいステップをアクティブに
+            currentStep = step;
+            document.getElementById(`step${step}`).classList.add('active');
+        }
+
+        // ファイルアップロード処理
+        document.getElementById('audioFile').addEventListener('change', handleFileSelect);
+        
+        // ドラッグ&ドロップ処理
+        const uploadArea = document.getElementById('uploadArea');
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.classList.add('dragover');
+        });
+        
+        uploadArea.addEventListener('dragleave', () => {
+            uploadArea.classList.remove('dragover');
+        });
+        
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadArea.classList.remove('dragover');
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                handleFileSelect({ target: { files: files } });
+            }
+        });
+
+        function handleFileSelect(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            // ファイル形式チェック
+            const allowedTypes = ['audio/mp3', 'audio/wav', 'audio/mp4', 'audio/mpeg', 'audio/x-wav'];
+            const allowedExtensions = ['.mp3', '.wav', '.m4a', '.mp4'];
+            
+            const isValidType = allowedTypes.includes(file.type) || 
+                               allowedExtensions.some(ext => file.name.toLowerCase().endsWith(ext));
+            
+            if (!isValidType) {
+                showError('対応していないファイル形式です。mp3, wav, m4a形式のファイルを選択してください。');
+                return;
+            }
+
+            // ファイルサイズチェック（100MB）
+            if (file.size > 100 * 1024 * 1024) {
+                showError('ファイルサイズが大きすぎます。100MB以下のファイルを選択してください。');
+                return;
+            }
+
+            uploadFile(file);
+        }
+
+        function uploadFile(file) {
+            const formData = new FormData();
+            formData.append('audio_file', file);
+
+            // プログレス表示
+            document.getElementById('uploadProgress').style.display = 'block';
+            const progressBar = document.querySelector('.progress-bar');
+            progressBar.style.width = '30%';
+
+            fetch('/upload', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                progressBar.style.width = '100%';
+                
+                if (data.success) {
+                    currentSessionId = data.session_id;
+                    showTranscription(data.transcription);
+                    showSuccess('音声の文字起こしが完了しました！');
+                } else {
+                    showError(data.error || '音声アップロードに失敗しました');
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                showError('通信エラーが発生しました');
+            })
+            .finally(() => {
+                document.getElementById('uploadProgress').style.display = 'none';
+            });
+        }
+
+        function showTranscription(transcription) {
+            document.getElementById('transcriptionResult').textContent = transcription;
+            document.getElementById('upload-section').style.display = 'none';
+            document.getElementById('transcription-section').style.display = 'block';
+            updateStep(2);
+        }
+
+        function showShopInfoForm() {
+            document.getElementById('transcription-section').style.display = 'none';
+            document.getElementById('shop-info-section').style.display = 'block';
+            updateStep(3);
+        }
+
+        function generateArticle() {
+            // フォームバリデーション
+            const shopName = document.getElementById('shopName').value;
+            const shopCategory = document.getElementById('shopCategory').value;
+            const shopLocation = document.getElementById('shopLocation').value;
+
+            if (!shopName || !shopCategory || !shopLocation) {
+                showError('必須項目（店舗名、業種、地域）を入力してください');
+                return;
+            }
+
+            // 店舗情報収集
+            const shopInfo = {
+                name: shopName,
+                category: shopCategory,
+                location: shopLocation,
+                address: document.getElementById('shopAddress').value,
+                phone: document.getElementById('shopPhone').value,
+                hours: document.getElementById('shopHours').value,
+                closed: document.getElementById('shopClosed').value,
+                notes: document.getElementById('shopNotes').value
+            };
+
+            // ローディング表示
+            showLoading();
+
+            fetch('/generate_article', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    session_id: currentSessionId,
+                    shop_info: shopInfo
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                hideLoading();
+                
+                if (data.success) {
+                    showArticleResult(data);
+                    showSuccess('記事の生成が完了しました！');
+                } else {
+                    showError(data.error || '記事生成に失敗しました');
+                }
+            })
+            .catch(error => {
+                hideLoading();
+                console.error('Error:', error);
+                showError('通信エラーが発生しました');
+            });
+        }
+
+        function showArticleResult(data) {
+            // 品質スコア表示
+            const qualityDiv = document.getElementById('qualityScore');
+            const quality = data.quality;
+            let qualityClass = 'quality-poor';
+            
+            if (quality.score >= 90) qualityClass = 'quality-excellent';
+            else if (quality.score >= 70) qualityClass = 'quality-good';
+            else if (quality.score >= 50) qualityClass = 'quality-fair';
+            
+            qualityDiv.className = `quality-score ${qualityClass}`;
+            qualityDiv.innerHTML = `
+                <h5>記事品質スコア: ${quality.score}/100 (${quality.grade})</h5>
+                <p>文字数: ${quality.word_count}文字</p>
+                <ul class="text-start">
+                    ${quality.feedback.map(f => `<li>${f}</li>`).join('')}
+                </ul>
+            `;
+
+            // 記事内容表示
+            document.getElementById('articleTitle').value = data.article.title;
+            document.getElementById('articlePreview').textContent = data.article.content;
+            document.getElementById('socialSummary').textContent = data.social_summary;
+
+            // セクション切り替え
+            document.getElementById('shop-info-section').style.display = 'none';
+            document.getElementById('article-section').style.display = 'block';
+            updateStep(4);
+        }
+
+        function exportArticle(format) {
+            if (!currentSessionId) {
+                showError('セッションが無効です');
+                return;
+            }
+
+            window.open(`/export/${currentSessionId}/${format}`, '_blank');
+        }
+
+        function copyToClipboard() {
+            const articleContent = document.getElementById('articlePreview').textContent;
+            navigator.clipboard.writeText(articleContent).then(() => {
+                showSuccess('記事内容をクリップボードにコピーしました');
+            }).catch(() => {
+                showError('クリップボードへのコピーに失敗しました');
+            });
+        }
+
+        // ユーティリティ関数
+        function showLoading() {
+            document.getElementById('loadingSpinner').style.display = 'block';
+        }
+
+        function hideLoading() {
+            document.getElementById('loadingSpinner').style.display = 'none';
+        }
+
+        function showError(message) {
+            const errorAlert = document.getElementById('errorAlert');
+            document.getElementById('errorMessage').textContent = message;
+            errorAlert.style.display = 'block';
+            setTimeout(() => {
+                errorAlert.style.display = 'none';
+            }, 5000);
+        }
+
+        function showSuccess(message) {
+            const successAlert = document.getElementById('successAlert');
+            document.getElementById('successMessage').textContent = message;
+            successAlert.style.display = 'block';
+            setTimeout(() => {
+                successAlert.style.display = 'none';
+            }, 3000);
+        }
+    </script>
+</body>
+</html>
