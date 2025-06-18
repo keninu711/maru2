@@ -1,36 +1,23 @@
 import streamlit as st
 import tempfile
 import os
+import subprocess
 import logging
 from datetime import datetime
 from typing import Dict, List
 import re
-import openai
 
 # ログ設定
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class AudioProcessor:
-    """音声処理クラス（OpenAI API版）"""
-    
-    def __init__(self):
-        # OpenAI APIキーを設定
-        self.api_key = st.secrets.get("OPENAI_API_KEY", "")
-        if self.api_key:
-            openai.api_key = self.api_key
+    """音声処理クラス"""
     
     def transcribe_audio(self, audio_path: str) -> Dict[str, any]:
-        """OpenAI Whisper APIを使用して音声を文字起こし"""
+        """既存のWhisperコマンドを使用して音声を文字起こし"""
         try:
-            logger.info(f"OpenAI Whisper APIで音声文字起こし開始: {audio_path}")
-            
-            # APIキーの確認
-            if not self.api_key:
-                return {
-                    "success": False,
-                    "error": "OpenAI APIキーが設定されていません。"
-                }
+            logger.info(f"Whisperで音声文字起こし開始: {audio_path}")
             
             # ファイルの存在確認
             if not os.path.exists(audio_path):
@@ -39,66 +26,175 @@ class AudioProcessor:
                     "error": f"音声ファイルが見つかりません: {audio_path}"
                 }
             
-            # ファイルサイズを確認（25MB制限）
+            # ファイルサイズを確認
             file_size = os.path.getsize(audio_path)
-            max_size = 25 * 1024 * 1024  # 25MB
+            logger.info(f"音声ファイルサイズ: {file_size} bytes")
             
-            if file_size > max_size:
+            # Whisperコマンドを実行（デバッグ情報追加）
+            output_dir = os.path.dirname(audio_path)
+            
+            # 出力ディレクトリの絶対パスを取得
+            output_dir = os.path.abspath(output_dir)
+            audio_path = os.path.abspath(audio_path)
+            
+            cmd = f'whisper "{audio_path}" --language ja --output_dir "{output_dir}" --output_format txt --verbose True'
+            
+            logger.info(f"実行コマンド: {cmd}")
+            logger.info(f"音声ファイル（絶対パス）: {audio_path}")
+            logger.info(f"出力ディレクトリ（絶対パス）: {output_dir}")
+            
+            # 実行前のディレクトリ内容を確認
+            try:
+                before_files = os.listdir(output_dir)
+                logger.info(f"実行前のディレクトリ内容: {before_files}")
+            except Exception as e:
+                logger.error(f"実行前ディレクトリ確認エラー: {e}")
+            
+            # Whisperコマンド実行
+            result = subprocess.run(
+                cmd, 
+                shell=True, 
+                capture_output=True, 
+                text=True, 
+                encoding='utf-8',
+                errors='replace',
+                cwd=output_dir  # 作業ディレクトリを明示的に設定
+            )
+            
+            logger.info(f"Whisperリターンコード: {result.returncode}")
+            logger.info(f"Whisper標準出力: {result.stdout}")
+            
+            if result.stderr:
+                logger.warning(f"Whisper標準エラー: {result.stderr}")
+            
+            # 実行後のディレクトリ内容を確認
+            try:
+                after_files = os.listdir(output_dir)
+                logger.info(f"実行後のディレクトリ内容: {after_files}")
+                
+                # 新しく作成されたファイルを特定
+                new_files = [f for f in after_files if f not in before_files]
+                logger.info(f"新しく作成されたファイル: {new_files}")
+                
+            except Exception as e:
+                logger.error(f"実行後ディレクトリ確認エラー: {e}")
+            
+            if result.returncode != 0:
+                logger.error(f"Whisperエラー出力: {result.stderr}")
                 return {
                     "success": False,
-                    "error": f"ファイルサイズが大きすぎます。25MB以下にしてください。現在のサイズ: {file_size / 1024 / 1024:.1f}MB"
+                    "error": f"Whisperエラー (コード: {result.returncode}): {result.stderr}"
                 }
             
-            logger.info(f"音声ファイルサイズ: {file_size / 1024 / 1024:.1f}MB")
+            # 期待されるテキストファイルのパスを生成
+            base_name = os.path.splitext(os.path.basename(audio_path))[0]
+            expected_txt_file = os.path.join(output_dir, f"{base_name}.txt")
             
-            # OpenAI Whisper APIで文字起こし実行
-            with open(audio_path, "rb") as audio_file:
-                transcript = openai.Audio.transcribe(
-                    model="whisper-1",
-                    file=audio_file,
-                    language="ja"
-                )
+            logger.info(f"期待されるテキストファイル: {expected_txt_file}")
             
-            transcription_text = transcript.text
+            # すべての.txtファイルを検索
+            try:
+                all_files = os.listdir(output_dir)
+                txt_files = [f for f in all_files if f.endswith('.txt')]
+                logger.info(f"見つかった.txtファイル: {txt_files}")
+                
+                # 各.txtファイルの詳細を確認
+                for txt_file in txt_files:
+                    full_path = os.path.join(output_dir, txt_file)
+                    size = os.path.getsize(full_path)
+                    logger.info(f"ファイル: {txt_file}, サイズ: {size} bytes")
+                
+            except Exception as e:
+                logger.error(f"ディレクトリ読み込みエラー: {e}")
             
-            if not transcription_text or len(transcription_text.strip()) == 0:
-                return {
-                    "success": False,
-                    "error": "文字起こし結果が空です。音声が明確でない可能性があります。"
-                }
+            # 最初に期待されるファイルを確認
+            if os.path.exists(expected_txt_file):
+                logger.info(f"期待されるテキストファイルが見つかりました: {expected_txt_file}")
+                transcription = self._read_transcription_file(expected_txt_file)
+                if transcription:
+                    return {
+                        "success": True,
+                        "text": transcription,
+                        "language": "ja"
+                    }
             
-            logger.info(f"文字起こし成功: {len(transcription_text)} 文字")
+            # 代替ファイル名で検索
+            possible_names = [
+                f"{base_name}.txt",
+                f"{os.path.basename(audio_path)}.txt",
+                # タイムスタンプ付きの元ファイル名から推測
+                f"{base_name.split('_', 1)[-1] if '_' in base_name else base_name}.txt"
+            ]
+            
+            for possible_name in possible_names:
+                possible_file = os.path.join(output_dir, possible_name)
+                if os.path.exists(possible_file):
+                    logger.info(f"代替ファイルが見つかりました: {possible_file}")
+                    transcription = self._read_transcription_file(possible_file)
+                    if transcription:
+                        return {
+                            "success": True,
+                            "text": transcription,
+                            "language": "ja"
+                        }
+            
+            # すべての.txtファイルを試行
+            for txt_file in txt_files:
+                full_path = os.path.join(output_dir, txt_file)
+                logger.info(f"全.txtファイル試行: {full_path}")
+                transcription = self._read_transcription_file(full_path)
+                if transcription:
+                    return {
+                        "success": True,
+                        "text": transcription,
+                        "language": "ja"
+                    }
             
             return {
-                "success": True,
-                "text": transcription_text.strip(),
-                "language": "ja"
+                "success": False,
+                "error": f"文字起こしファイルが見つかりません。出力ディレクトリ: {output_dir}, 期待ファイル: {expected_txt_file}"
             }
                 
-        except openai.error.AuthenticationError:
-            logger.error("OpenAI API認証エラー")
-            return {
-                "success": False,
-                "error": "OpenAI APIキーが無効です。正しいAPIキーを設定してください。"
-            }
-        except openai.error.RateLimitError:
-            logger.error("OpenAI APIレート制限エラー")
-            return {
-                "success": False,
-                "error": "APIの使用制限に達しました。しばらく待ってから再試行してください。"
-            }
-        except openai.error.APIError as e:
-            logger.error(f"OpenAI APIエラー: {str(e)}")
-            return {
-                "success": False,
-                "error": f"OpenAI APIエラー: {str(e)}"
-            }
         except Exception as e:
             logger.error(f"音声文字起こしエラー: {str(e)}")
             return {
                 "success": False,
-                "error": f"予期しないエラー: {str(e)}"
+                "error": str(e)
             }
+    
+    def _read_transcription_file(self, file_path: str) -> str:
+        """文字起こしファイルを読み込み"""
+        try:
+            # 複数のエンコーディングで試行
+            encodings = ['utf-8', 'shift_jis', 'cp932', 'utf-8-sig']
+            
+            for encoding in encodings:
+                try:
+                    with open(file_path, 'r', encoding=encoding) as f:
+                        content = f.read().strip()
+                    if content:
+                        logger.info(f"エンコーディング {encoding} で読み込み成功: {len(content)} 文字")
+                        logger.info(f"文字起こし結果（最初の100文字）: {content[:100]}")
+                        return content
+                except UnicodeDecodeError as e:
+                    logger.warning(f"エンコーディング {encoding} で失敗: {e}")
+                    continue
+            
+            # 最後の手段：バイナリで読み込んで無効文字を置換
+            logger.info("バイナリモードで読み込み試行")
+            with open(file_path, 'rb') as f:
+                raw_data = f.read()
+            content = raw_data.decode('utf-8', errors='replace').strip()
+            
+            if content:
+                logger.info(f"バイナリモードで読み込み成功: {len(content)} 文字")
+                return content
+            
+            return ""
+            
+        except Exception as e:
+            logger.error(f"ファイル読み込みエラー {file_path}: {e}")
+            return ""
 
 class SuperImprovedArticleGenerator:
     """超改良版記事生成クラス（まるつー風プロ仕様・重複除去版）"""
@@ -315,7 +411,6 @@ class SuperImprovedArticleGenerator:
         
         return section
 
-    # 以下、抽出メソッド群（元のコードと同じ）
     def _extract_interior_details(self, transcription: str) -> str:
         """内装の詳細を抽出（改良版）"""
         interior_keywords = ['木目調', 'インテリア', '照明', 'ナチュラル', '温かみ', 'リラックス', '動線', 'レイアウト']
@@ -461,7 +556,7 @@ class SuperImprovedArticleGenerator:
         return ""
 
 class SuperImprovedApp:
-    """超改良版記事生成アプリ（OpenAI API版）"""
+    """超改良版記事生成アプリ"""
     
     def __init__(self):
         self.audio_processor = AudioProcessor()
@@ -502,12 +597,6 @@ class SuperImprovedApp:
         </style>
         """, unsafe_allow_html=True)
         
-        # APIキーチェック
-        if not self.audio_processor.api_key:
-            st.error("🔑 OpenAI APIキーが設定されていません。Streamlit Community Cloudの設定でAPIキーを追加してください。")
-            st.info("設定方法: Share → Settings → Secrets → OPENAI_API_KEY = 'your-api-key'")
-            return
-        
         # メインヘッダー
         st.markdown('<h1 class="main-header">📰 まるつー記事生成システム</h1>', unsafe_allow_html=True)
         st.markdown("---")
@@ -515,10 +604,9 @@ class SuperImprovedApp:
         # サイドバー情報
         with st.sidebar:
             st.header("ℹ️ システム情報")
-            st.write("**バージョン:** 4.0（OpenAI API版）")
+            st.write("**バージョン:** 3.0（超改良版・重複除去対応）")
             st.write("**対応音声:** MP3, WAV, M4A, FLAC, AAC")
             st.write("**記事形式:** まるつー風プロ仕様")
-            st.write("**文字起こし:** OpenAI Whisper API")
             
             st.markdown("---")
             st.header("📋 使用手順")
@@ -526,13 +614,6 @@ class SuperImprovedApp:
             st.write("2. 取材対応者情報を入力")
             st.write("3. 音声ファイルをアップロード")
             st.write("4. 記事生成ボタンをクリック")
-            
-            st.markdown("---")
-            st.header("💰 料金について")
-            st.write("**Whisper API料金:**")
-            st.write("- 音声1分あたり約$0.006")
-            st.write("- 10分の音声で約6円")
-            st.write("- 月100分使用で約60円")
             
             st.markdown("---")
             st.header("⚡ 処理状況")
@@ -586,34 +667,14 @@ class SuperImprovedApp:
         
         # 音声ファイルアップロード
         st.header("🎤 音声ファイルをアップロード")
-        
-        # ファイルサイズ制限の案内
-        st.info("📏 **ファイル制限:** 25MB以下 | **推奨時間:** 30分以内 | **対応形式:** MP3, WAV, M4A, FLAC, AAC")
-        
         uploaded_file = st.file_uploader(
             "インタビュー音声ファイルを選択してください",
             type=['mp3', 'wav', 'm4a', 'flac', 'aac'],
-            help="OpenAI Whisper APIを使用して高精度な文字起こしを行います"
+            help="対応形式: MP3, WAV, M4A, FLAC, AAC"
         )
         
         # 音声処理と記事生成
         if uploaded_file is not None:
-            # ファイルサイズチェック
-            file_size = len(uploaded_file.getbuffer())
-            file_size_mb = file_size / 1024 / 1024
-            
-            st.write(f"📁 **アップロードファイル:** {uploaded_file.name}")
-            st.write(f"📊 **ファイルサイズ:** {file_size_mb:.1f}MB")
-            
-            if file_size_mb > 25:
-                st.error("❌ ファイルサイズが25MBを超えています。ファイルを圧縮するか、短く分割してください。")
-                return
-            
-            # 推定料金の表示
-            estimated_minutes = file_size_mb * 2  # 大まかな推定
-            estimated_cost = estimated_minutes * 0.006
-            st.info(f"💰 **推定料金:** 約${estimated_cost:.3f} (約{estimated_cost * 150:.1f}円)")
-            
             # 必須項目チェック
             if not shop_name or not interviewee_name:
                 st.error("❌ 店舗名と取材対応者のお名前は必須項目です。")
@@ -657,7 +718,7 @@ class SuperImprovedApp:
             return None
 
     def _process_audio_and_generate_article(self, uploaded_file, shop_info: dict):
-        """音声処理と記事生成のメイン処理（OpenAI API版）"""
+        """音声処理と記事生成のメイン処理（改良版）"""
         # セッション状態に店舗情報を保存
         st.session_state.current_shop_info = shop_info
         st.session_state.processing_status = "処理中"
@@ -673,19 +734,13 @@ class SuperImprovedApp:
             
             st.success(f"✅ 音声ファイルを保存しました: {os.path.basename(temp_audio_path)}")
         
-        with st.spinner("🎤 OpenAI Whisper APIで文字起こし中..."):
+        with st.spinner("🎤 音声を文字起こし中..."):
             # 文字起こし実行
             transcription_result = self.audio_processor.transcribe_audio(temp_audio_path)
             
             if not transcription_result["success"]:
                 st.error(f"❌ 文字起こしに失敗しました: {transcription_result['error']}")
                 st.session_state.processing_status = "エラー"
-                
-                # 一時ファイルをクリーンアップ
-                try:
-                    os.unlink(temp_audio_path)
-                except:
-                    pass
                 return
             
             transcription_text = transcription_result["text"]
@@ -694,7 +749,6 @@ class SuperImprovedApp:
             # 文字起こし結果を表示
             with st.expander("📝 文字起こし結果を確認", expanded=False):
                 st.text_area("文字起こし内容", transcription_text, height=200)
-                st.info(f"📊 文字数: {len(transcription_text)} 文字")
         
         with st.spinner("📰 記事を生成中..."):
             # 記事生成
@@ -703,17 +757,11 @@ class SuperImprovedApp:
             if not article_result["success"]:
                 st.error(f"❌ 記事生成に失敗しました: {article_result['error']}")
                 st.session_state.processing_status = "エラー"
-                
-                # 一時ファイルをクリーンアップ
-                try:
-                    os.unlink(temp_audio_path)
-                except:
-                    pass
                 return
         
         # 記事生成成功
         st.session_state.processing_status = "完了"
-        self._display_article_results(article_result, shop_info, transcription_text)
+        self._display_article_results(article_result, shop_info)
         
         # 一時ファイルをクリーンアップ
         try:
@@ -722,7 +770,7 @@ class SuperImprovedApp:
         except Exception as e:
             logger.warning(f"一時ファイル削除エラー: {e}")
 
-    def _display_article_results(self, article_result: dict, shop_info: dict, transcription_text: str):
+    def _display_article_results(self, article_result: dict, shop_info: dict):
         """記事生成結果を表示"""
         st.markdown("---")
         st.header("📰 生成された記事")
@@ -736,80 +784,26 @@ class SuperImprovedApp:
         st.markdown(article_result['content'], unsafe_allow_html=True)
         
         # 記事統計
-        col1, col2, col3, col4 = st.columns(4)
+        col1, col2, col3 = st.columns(3)
         with col1:
-            st.metric("記事文字数", f"{article_result['word_count']}文字")
+            st.metric("文字数", f"{article_result['word_count']}文字")
         with col2:
             quality_score = self._calculate_quality_score(article_result['word_count'])
             st.metric("品質スコア", quality_score)
         with col3:
             st.metric("セクション数", article_result['content'].count('<h2>'))
-        with col4:
-            st.metric("元音声文字数", f"{len(transcription_text)}文字")
         
         # ダウンロード機能
         st.subheader("💾 記事のダウンロード")
         
-        # Markdown形式でダウンロード
-        article_markdown = f"""# {article_result['title']}
-
-{article_result['content']}
-
----
-
-## 生成情報
-- 生成日時: {datetime.now().strftime('%Y年%m月%d日 %H:%M:%S')}
-- 店舗名: {shop_info.get('name', '不明')}
-- 取材対応者: {shop_info.get('interviewee_title', '店長')}の{shop_info.get('interviewee_name', '不明')}さん
-- 記事文字数: {article_result['word_count']}文字
-- 音声文字数: {len(transcription_text)}文字
-"""
-        
-        col_dl1, col_dl2 = st.columns(2)
-        
-        with col_dl1:
-            st.download_button(
-                label="📝 Markdown形式でダウンロード",
-                data=article_markdown,
-                file_name=f"{shop_info.get('name', 'article')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md",
-                mime="text/markdown"
-            )
-        
-        with col_dl2:
-            # HTML形式でダウンロード
-            article_html = f"""<!DOCTYPE html>
-<html lang="ja">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{article_result['title']}</title>
-    <style>
-        body {{ font-family: 'Hiragino Sans', 'Yu Gothic', sans-serif; line-height: 1.6; margin: 40px; }}
-        h1 {{ color: #2E86AB; border-bottom: 2px solid #2E86AB; padding-bottom: 10px; }}
-        h2 {{ color: #333; margin-top: 30px; }}
-        .meta {{ background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin: 20px 0; }}
-    </style>
-</head>
-<body>
-    <h1>{article_result['title']}</h1>
-    {article_result['content']}
-    
-    <div class="meta">
-        <h3>記事情報</h3>
-        <p><strong>生成日時:</strong> {datetime.now().strftime('%Y年%m月%d日 %H:%M:%S')}</p>
-        <p><strong>店舗名:</strong> {shop_info.get('name', '不明')}</p>
-        <p><strong>取材対応者:</strong> {shop_info.get('interviewee_title', '店長')}の{shop_info.get('interviewee_name', '不明')}さん</p>
-        <p><strong>文字数:</strong> {article_result['word_count']}文字</p>
-    </div>
-</body>
-</html>"""
-            
-            st.download_button(
-                label="🌐 HTML形式でダウンロード",
-                data=article_html,
-                file_name=f"{shop_info.get('name', 'article')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html",
-                mime="text/html"
-            )
+        # テキスト形式でダウンロード
+        article_text = f"# {article_result['title']}\n\n{article_result['content']}"
+        st.download_button(
+            label="📝 テキスト形式でダウンロード",
+            data=article_text,
+            file_name=f"{shop_info.get('name', 'article')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md",
+            mime="text/markdown"
+        )
 
     def _calculate_quality_score(self, word_count: int) -> str:
         """記事の品質スコアを計算"""
